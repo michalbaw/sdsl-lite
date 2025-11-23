@@ -30,10 +30,10 @@ void dump(auto... x) { (( cerr << x << ", " ), ...) << '\n'; }
 #define deb(...) 0
 #endif
 
-using sparse_table = rmq_support_sparse_table<true,false>;
 
 namespace sdsl
 {
+using sparse_table = rmq_support_sparse_table<true,false>;
 
 struct RMQ_Fast
 {
@@ -45,9 +45,9 @@ struct RMQ_Fast
 	int_vector<> block_minimums;
 	int_vector<> block_minumums_indices;
 
-	RMQ_Fast(int_vector<>* A) : m(sz(*A)), a(*A), c(sz(*A)), c_indexes(sz(*a))
+	RMQ_Fast(int_vector<>* A) : m(sz(*A)), a(*A), c(sz(*A)), c_indexes(sz(*A))
 	{
-		block_minimums(sz(a) / B + 1);
+		block_minimums = int_vector<>(sz(a) / B + 1, 0);
 		uint32_t mi = 0;
 		rep(i, sz(a)) {
 			if (i % B || a[i] < block_minimums[i / B])
@@ -61,10 +61,10 @@ struct RMQ_Fast
 				mi ^= (1u << __builtin_ctz(mi));
 			}
 			m[i] = mi ^= 1;
-			c[i] = a[i - __lg(m[i])];
-			c_indexes[i] = i - __lg(m[i]);
+			c[i] = a[i - __lg((uint32_t)m[i])];
+			c_indexes[i] = i - __lg((uint32_t)m[i]);
 		}
-		s = sparse_table(block_minimums);
+		s = sparse_table(&block_minimums);
 	}
 	size_type operator()(size_type l, size_type r) const
 	{
@@ -72,7 +72,7 @@ struct RMQ_Fast
 		{
 			return r - __lg(m[r] & ((1u << (r - l + 1)) - 1));
 		}
-		size_type min_val, min_idx;
+		size_type local_min, local_idx;
 		if (c[l + B - 1] <= c[r])
 		{
 			local_min = c[l + B- 1];
@@ -85,10 +85,10 @@ struct RMQ_Fast
 		}
 		l = (l + B - 1) / B;
 		r = r / B - 1;
-		size_type sparse_min_idx = s.get(l, r);
+		size_type sparse_min_idx = s(l, r);
 		size_type sparse_min = block_minimums[sparse_min_idx];
-		sprase_min_idx = block_minumums_indices[sparse_min_idx];
-		if (sprase_min < local_min or (sprase_min == local_min and sparse_min_idx < local_idx))
+		sparse_min_idx = block_minumums_indices[sparse_min_idx];
+		if (sparse_min < local_min or (sparse_min == local_min and sparse_min_idx < local_idx))
 		{
 			return sparse_min_idx;
 		}
