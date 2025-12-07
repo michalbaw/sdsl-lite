@@ -35,19 +35,56 @@ namespace sdsl
 {
 using sparse_table = rmq_support_sparse_table<true,false>;
 
-struct RMQ_Fast
+template<uint32_t t_sparseTable_block_size, uint32_t t_bitmask_size, uint32_t... t_recurisve_sizes>
+class RMQ_SDSL_Fast
 {
     typedef typename bit_vector::size_type size_type;
 	static constexpr int B = 32; // not larger!
-	sparse_table s;
+	sparse_table m_sparse_table;
+	RMQ_Fast<t_sparseTable_block_size, t_recurisve_sizes...>* m_recursive_rmq;
 	int_vector<> m;
 	int_vector<> a, c, c_indexes;
 	int_vector<> block_minimums{0, 0};
 	int_vector<> block_minumums_indices{0, 0};
 
-	RMQ_Fast(int_vector<>* A) : m(sz(*A), 0), a(*A), c(sz(*A), 0), c_indexes(sz(*A), 0), 
-		block_minimums(sz(*A) / B + 1, 0), block_minumums_indices(sz(*A) / B + 1, 0)
+	template<class t_rac>
+	void build_sparse_table(const t_rac* v) {
+		size_type n = v->size();
+		size_type block_size = t_sparseTable_block_size;
+		size_type sample_size = n/block_size + ((n % block_size) != 0);
+		m_sample_idx = int_vector<>(sample_size);
+		m_sample_val = int_vector<>(sample_size);
+		for(size_type i = 0; i < sample_size; ++i) {
+			size_type min_idx = i * block_size;
+			for(size_type j = i*block_size; j < std::min((i+1)*block_size,n); ++j) {
+				if((*v)[j] < (*v)[min_idx]) min_idx = j;
+			}
+			m_sample_val[i] = (*v)[min_idx];
+			m_sample_idx[i] = min_idx - i * block_size;
+		}
+		util::bit_compress(m_sample_idx);
+		util::bit_compress(m_sample_val);
+		m_sparse_table = sparse_table(&m_sample_val);
+	}
+
+	template<class t_rac>
+	RMQ_SDSL_Fast(const t_rac* A=nullptr) : m_sparse_table(nullptr), m_recursive_rmq(nullptr)
 	{
+		if (A == nullptr)
+		{
+			return;
+		}
+		if (t_bitmask_size == 0)
+		{
+			m_sparse_table = sparse_table(&block_minimums);
+			return;
+		}
+		m(sz(*A), 0);
+		a(*A);
+		c(sz(*A), 0);
+		c_indexes(sz(*A), 0);
+		block_minimums(sz(*A) / B + 1, 0);
+		block_minumums_indices(sz(*A) / B + 1, 0);
 		uint32_t mi = 0;
 		rep(i, sz(a)) {
 			if (!(i % B) or a[i] < block_minimums[i / B])
@@ -64,10 +101,29 @@ struct RMQ_Fast
 			c[i] = a[i - __lg((uint32_t)m[i])];
 			c_indexes[i] = i - __lg((uint32_t)m[i]);
 		}
-		s = sparse_table(&block_minimums);
+		if (t_sparseTable_block_size)
+		{
+			build_sparse_table(v);
+		}
 	}
 	size_type operator()(size_type l, size_type r) const
 	{
+		if (t_bitmask_size == 0)
+		{
+			return m_sparse_table(l, r);
+		}
+		if (t_sparseTable_block_size > 0)
+		{
+			const size_type block_size = t_sparseTable_block_size;
+			size_type i = l / block_size;
+			size_type j = r / block_size;
+			size_type min_block = m_sparse_table(i,j);
+			size_type min_idx = block_minumums_indices[min_block];
+			if(l <= min_idx and min_idx <= r)
+			{
+				return min_idx;
+			}
+		}
 		if (r - l + 1 < B)
 		{
 			return r - __lg(m[r] & ((1u << (r - l + 1)) - 1));
@@ -85,12 +141,12 @@ struct RMQ_Fast
 		}
 		l = (l + B - 1) / B;
 		r = r / B - 1;
-		size_type sparse_min_idx = s(l, r);
-		size_type sparse_min = block_minimums[sparse_min_idx];
-		sparse_min_idx = block_minumums_indices[sparse_min_idx];
-		if (sparse_min < local_min or (sparse_min == local_min and sparse_min_idx < local_idx))
+		size_type recursive_min_idx = m_recursive_rmq(l, r);
+		size_type recursive_min = block_minimums[recursive_min_idx];
+		recursive_min_idx = block_minumums_indices[recursive_min_idx];
+		if (recursive_min < local_min or (recursive_min == local_min and recursive_min_idx < local_idx))
 		{
-			return sparse_min_idx;
+			return recursive_min_idx;
 		}
 		else
 		{
