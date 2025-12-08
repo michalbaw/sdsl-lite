@@ -1,5 +1,5 @@
-#ifndef RMQ_FAST_GUARD
-#define RMQ_FAST_GUARD
+#ifndef RMQ_SDSL_FAST_GUARD
+#define RMQ_SDSL_FAST_GUARD
 
 #include <bits/stdc++.h>
 
@@ -38,14 +38,18 @@ using sparse_table = rmq_support_sparse_table<true,false>;
 template<uint32_t t_sparseTable_block_size, uint32_t t_bitmask_size, uint32_t... t_recurisve_sizes>
 class RMQ_SDSL_Fast
 {
+	using recursive_rmq = RMQ_SDSL_Fast<t_sparseTable_block_size, t_recurisve_sizes..., 0>;
+public:
     typedef typename bit_vector::size_type size_type;
+private:
 	static constexpr int B = 32; // not larger!
 	sparse_table m_sparse_table;
-	RMQ_Fast<t_sparseTable_block_size, t_recurisve_sizes...>* m_recursive_rmq;
+	std::unique_ptr<recursive_rmq> m_recursive_rmq;
 	int_vector<> m;
 	int_vector<> a, c, c_indexes;
-	int_vector<> block_minimums{0, 0};
-	int_vector<> block_minumums_indices{0, 0};
+	int_vector<> block_minimums;
+	int_vector<> block_minumums_indices;
+	int_vector<> m_sample_idx, m_sample_val;
 
 	template<class t_rac>
 	void build_sparse_table(const t_rac* v) {
@@ -67,6 +71,7 @@ class RMQ_SDSL_Fast
 		m_sparse_table = sparse_table(&m_sample_val);
 	}
 
+public:
 	template<class t_rac>
 	RMQ_SDSL_Fast(const t_rac* A=nullptr) : m_sparse_table(nullptr), m_recursive_rmq(nullptr)
 	{
@@ -76,15 +81,15 @@ class RMQ_SDSL_Fast
 		}
 		if (t_bitmask_size == 0)
 		{
-			m_sparse_table = sparse_table(&block_minimums);
+			m_sparse_table = sparse_table(A);
 			return;
 		}
-		m(sz(*A), 0);
-		a(*A);
-		c(sz(*A), 0);
-		c_indexes(sz(*A), 0);
-		block_minimums(sz(*A) / B + 1, 0);
-		block_minumums_indices(sz(*A) / B + 1, 0);
+		m = int_vector<>(sz(*A), 0);
+		a = int_vector<>(*A);
+		c = int_vector<>(sz(*A), 0);
+		c_indexes = int_vector<>(sz(*A), 0);
+		block_minimums = int_vector<>(sz(*A) / B + 1, 0);
+		block_minumums_indices = int_vector<>(sz(*A) / B + 1, 0);
 		uint32_t mi = 0;
 		rep(i, sz(a)) {
 			if (!(i % B) or a[i] < block_minimums[i / B])
@@ -101,9 +106,10 @@ class RMQ_SDSL_Fast
 			c[i] = a[i - __lg((uint32_t)m[i])];
 			c_indexes[i] = i - __lg((uint32_t)m[i]);
 		}
+		m_recursive_rmq = std::make_unique<recursive_rmq>(&block_minimums);
 		if (t_sparseTable_block_size)
 		{
-			build_sparse_table(v);
+			build_sparse_table(A);
 		}
 	}
 	size_type operator()(size_type l, size_type r) const
@@ -118,7 +124,7 @@ class RMQ_SDSL_Fast
 			size_type i = l / block_size;
 			size_type j = r / block_size;
 			size_type min_block = m_sparse_table(i,j);
-			size_type min_idx = block_minumums_indices[min_block];
+			size_type min_idx = m_sample_idx[min_block] + min_block * block_size;
 			if(l <= min_idx and min_idx <= r)
 			{
 				return min_idx;
@@ -141,7 +147,7 @@ class RMQ_SDSL_Fast
 		}
 		l = (l + B - 1) / B;
 		r = r / B - 1;
-		size_type recursive_min_idx = m_recursive_rmq(l, r);
+		size_type recursive_min_idx = (*m_recursive_rmq)(l, r);
 		size_type recursive_min = block_minimums[recursive_min_idx];
 		recursive_min_idx = block_minumums_indices[recursive_min_idx];
 		if (recursive_min < local_min or (recursive_min == local_min and recursive_min_idx < local_idx))
@@ -161,4 +167,4 @@ class RMQ_SDSL_Fast
 };
 } // namespace sdsl
 
-#endif // RMQ_FAST_GUARD
+#endif // RMQ_SDSL_FAST_GUARD

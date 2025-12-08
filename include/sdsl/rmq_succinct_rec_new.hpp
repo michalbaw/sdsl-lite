@@ -89,7 +89,7 @@ class rmq_succinct_rec_new
                 m_rank_select = rm.m_rank_select;
                 m_rank_select.set_vector(&m_gct_bp);
                 m_min_excess = rm.m_min_excess;
-                m_min_excess_idx = rm.min_excess_idx;
+                m_min_excess_idx = rm.m_min_excess_idx;
                 m_sparse_table = nullptr;
                 if(t_st_block_size) {
                     m_sample_idx = rm.m_sample_idx;
@@ -385,7 +385,7 @@ class rmq_succinct_rec_new
                     m_rank_select = rm.m_rank_select;
                     m_rank_select.set_vector(&m_gct_bp);
                     m_min_excess = rm.m_min_excess;
-                    m_min_excess_idx = rm.min_excess_idx;
+                    m_min_excess_idx = rm.m_min_excess_idx;
                     m_sparse_table = nullptr;
                     if(t_st_block_size) {
                         m_sample_idx = rm.m_sample_idx;
@@ -448,13 +448,13 @@ class rmq_succinct_rec_new
                     util::swap_support(*m_sparse_table, *(rm.m_sparse_table),
                                     &m_sample_val, &rm.m_sample_val); 
                 }
-                *m_rmq_recursive.swap(*rm.m_rmq_recursive);
+                (*m_rmq_recursive).swap(*rm.m_rmq_recursive);
                 std::swap(m_max_excess_v, rm.m_max_excess_v);
                 std::swap(m_max_excess_reverse_v, rm.m_max_excess_reverse_v);
             } else {
                 m_min_excess.swap(rm.m_min_excess);
                 util::swap_support(m_sparse_rmq, rm.m_sparse_rmq,
-                                   &m_min_excess, &(rm.min_excess));
+                                   &m_min_excess, &(rm.m_min_excess));
             }
         }
 
