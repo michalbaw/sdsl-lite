@@ -43,7 +43,7 @@ public:
     typedef typename bit_vector::size_type size_type;
 private:
 	static constexpr int B = 32; // not larger!
-	sparse_table m_sparse_table;
+	std::unique_ptr<sparse_table> m_sparse_table;
 	std::unique_ptr<recursive_rmq> m_recursive_rmq;
 	int_vector<> m;
 	int_vector<> a, c, c_indexes;
@@ -68,7 +68,7 @@ private:
 		}
 		util::bit_compress(m_sample_idx);
 		util::bit_compress(m_sample_val);
-		m_sparse_table = sparse_table(&m_sample_val);
+		m_sparse_table = std::make_unique<sparse_table>(&m_sample_val);
 	}
 
 public:
@@ -81,7 +81,7 @@ public:
 		}
 		if (t_bitmask_size == 0)
 		{
-			m_sparse_table = sparse_table(A);
+			m_sparse_table = std::make_unique<sparse_table>(A);
 			return;
 		}
 		m = int_vector<>(sz(*A), 0);
@@ -116,14 +116,14 @@ public:
 	{
 		if (t_bitmask_size == 0)
 		{
-			return m_sparse_table(l, r);
+			return (*m_sparse_table)(l, r);
 		}
 		if (t_sparseTable_block_size > 0)
 		{
 			const size_type block_size = t_sparseTable_block_size;
 			size_type i = l / block_size;
 			size_type j = r / block_size;
-			size_type min_block = m_sparse_table(i,j);
+			size_type min_block = (*m_sparse_table)(i,j);
 			size_type min_idx = m_sample_idx[min_block] + min_block * block_size;
 			if(l <= min_idx and min_idx <= r)
 			{
