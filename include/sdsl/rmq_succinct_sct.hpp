@@ -126,6 +126,10 @@ class rmq_succinct_sct
                                &m_sct_bp, &(rm.m_sct_bp));
         }
 
+        int getFunctionAnswered() {
+            return 0;
+        }
+
         //! Range minimum/maximum query for the supported random access container v.
         /*!
          * \param l Leftmost position of the interval \f$[\ell..r]\f$.

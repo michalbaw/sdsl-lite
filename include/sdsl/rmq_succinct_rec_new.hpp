@@ -23,6 +23,7 @@
 
 #include <stack>
 #include <limits>
+#include <print>
 
 #include "rmq_support.hpp"
 #include "int_vector.hpp"
@@ -82,6 +83,8 @@ class rmq_succinct_rec_new
         bit_vector::value_type      m_max_excess_v;         // Depth of the Cartesian Tree build over the original array
         bit_vector::value_type      m_max_excess_reverse_v; // Depth of the Cartesian Tree build over the reverse array
 
+        int functionAnswered = 0;
+
         void copy(const rmq_succinct_rec_new& rm) {
             m_use_sparse_rmq = rm.m_use_sparse_rmq;
             if (!m_use_sparse_rmq) {            
@@ -105,6 +108,18 @@ class rmq_succinct_rec_new
                 m_sparse_rmq = rm.m_sparse_rmq;
                 m_sparse_rmq.set_vector(&m_min_excess);
             }
+        }
+    
+    public:
+        int getFunctionAnswered() {
+            int answer = 0;
+            if (m_rmq_recursive != nullptr) {
+                int tmp = m_rmq_recursive->getFunctionAnswered();
+                answer += 10* tmp;
+            }
+            answer += functionAnswered;
+            functionAnswered = 0;
+            return answer;
         }
 
     private:
@@ -203,6 +218,7 @@ class rmq_succinct_rec_new
             }
             util::bit_compress(m_sample_idx);
             util::bit_compress(m_sample_val);
+            std::println(std::cerr, "Building aux sparse table on {} blocks of size {}", m_sample_val.size(), block_size);
             m_sparse_table = new sparse_table(&m_sample_val);
         }
 
@@ -333,6 +349,7 @@ class rmq_succinct_rec_new
         template<class t_rac>
         rmq_succinct_rec_new(const t_rac* v=nullptr) : m_sparse_table(nullptr), m_rmq_recursive(nullptr) {
             if (v != nullptr) {
+                std::println(std::cerr, "Rmq_succint_rec_new size: {}", v->size());
                 size_type bp_size = 2*v->size()+2;
                 m_gct_bp = bit_vector(bp_size,0);
                 if(t_super_block_size > 0 && t_super_block_size <= bp_size) {
@@ -344,6 +361,7 @@ class rmq_succinct_rec_new
                     } else {
                         construct_generalized_cartesian_tree<false,true>(v);
                     }
+                    std::println(std::cerr, "BP size: {}", m_gct_bp.size());
                     m_rank_select = rank_select_support_bp<>(&m_gct_bp);
                     build_rmq_recursive();
                     if(t_st_block_size) build_sparse_table(v);
@@ -472,16 +490,23 @@ class rmq_succinct_rec_new
          */
         size_type operator()(const size_type l, const size_type r) {
             assert(l <= r); assert(r < size());
-            if (l == r) return l;
+            if (l == r) {
+                functionAnswered = 1;
+                return l;
+            }
             if(m_use_sparse_rmq) {
-                 return m_sparse_rmq(l,r);
+                functionAnswered = 2;
+                return m_sparse_rmq(l,r);
             } else if(m_sparse_table) {
                 size_type block_size = t_st_block_size;
                 size_type i = l / block_size;
                 size_type j = r / block_size;
                 size_type min_block = (*m_sparse_table)(i,j);
                 size_type min_idx = m_sample_idx[min_block] + min_block * block_size;
-                if(l <= min_idx && min_idx <= r) return min_idx;
+                if(l <= min_idx && min_idx <= r){
+                    functionAnswered = 3;
+                    return min_idx;
+                }
             }
 
             size_type tmp_l = map_index(l), tmp_r = map_index(r);
@@ -493,6 +518,7 @@ class rmq_succinct_rec_new
             if (tmp_r - tmp_l < 64) {
                 size_type min_idx = 0;
                 if(fast_rmq_scan(tmp_l,tmp_r,i,min_idx)) {
+                    functionAnswered = 4;
                     return map_index(min_idx);
                 }
             }
@@ -516,6 +542,7 @@ class rmq_succinct_rec_new
                 if (min_excess_idx < i || min_excess_idx > j) {
                     min_excess_idx = near_rmq(m_gct_bp,i,j-1,min_rel_ex); 
                 }
+                functionAnswered = 5;
                 return map_index(m_rank_select.rank(min_excess_idx+1)-1);
             } 
             //Case: Query can be divided into three queries [l,l'), [l',r'] and (r',r], where [l',r'] is
@@ -550,6 +577,7 @@ class rmq_succinct_rec_new
                                                  min_left_excess,min_block_excess,min_right_excess);
                 size_type min_idx = rmq_min.first;
                 int_vector<>::value_type min_ex = rmq_min.second;
+                functionAnswered = 6;
                 return map_index((min_ex+min_idx)>>1);
             }
         }

@@ -81,6 +81,9 @@ public:
 		}
 		if (t_bitmask_size == 0)
 		{
+			block_minimums = int_vector<>(A->size(),0);
+			for (size_t i = 0; i < A->size(); ++i) 
+				block_minimums[i] = (*A)[i];
 			m_sparse_table = std::make_unique<sparse_table>(A);
 			return;
 		}
@@ -106,6 +109,8 @@ public:
 			c[i] = a[i - __lg((uint32_t)m[i])];
 			c_indexes[i] = i - __lg((uint32_t)m[i]);
 		}
+		util::bit_compress(block_minimums);
+		util::bit_compress(block_minumums_indices);
 		m_recursive_rmq = std::make_unique<recursive_rmq>(&block_minimums);
 		if (t_sparseTable_block_size)
 		{
@@ -160,9 +165,33 @@ public:
 		}
 	}
 
+	int getFunctionAnswered() {
+		return 0;
+	}
+
     size_type serialize(std::ostream& out, structure_tree_node* v=nullptr, std::string name="") const 
     {
-        return 1;
+        structure_tree_node* child = structure_tree::add_child(v, name, util::class_name(*this));
+		size_type written_bytes = 0;
+		if(t_bitmask_size) {
+			written_bytes += m.serialize(out, child, "m");
+			written_bytes += a.serialize(out, child, "a");
+			written_bytes += c.serialize(out, child, "c");
+			written_bytes += c_indexes.serialize(out, child, "c_indexes");
+			written_bytes += block_minimums.serialize(out, child, "block_minimums");
+			written_bytes += block_minumums_indices.serialize(out, child, "block_minimums_indices");
+			if(t_sparseTable_block_size) {
+				written_bytes += m_sample_idx.serialize(out, child, "sample_idx");
+				written_bytes += m_sample_val.serialize(out, child, "sample_val");
+				written_bytes += m_sparse_table->serialize(out, child, "sparse_table");
+			}
+			written_bytes += m_recursive_rmq->serialize(out, child, "rmq_recursive");
+		} else {
+			written_bytes += block_minimums.serialize(out, child, "block_minimums");
+			written_bytes += m_sparse_table->serialize(out, child, "sparse_rmq");
+		}
+		structure_tree::add_size(child, written_bytes);
+		return written_bytes;
     }
 };
 } // namespace sdsl
