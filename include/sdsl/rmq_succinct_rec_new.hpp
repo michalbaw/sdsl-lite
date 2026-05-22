@@ -21,6 +21,7 @@
 #ifndef INCLUDED_SDSL_RMQ_SUCCINCT_REC_NEW
 #define INCLUDED_SDSL_RMQ_SUCCINCT_REC_NEW
 
+#include <memory>
 #include <stack>
 #include <limits>
 #include <print>
@@ -34,12 +35,14 @@
 #include "suffix_tree_helper.hpp"
 #include "util.hpp"
 
+#include "rmq_sdsl_bitmasks_compressed.hpp"
+
 
 //! Namespace for the succinct data structure library.
 namespace sdsl
 {
 
-template<bool t_min = true, uint32_t t_st_block_size = 0, uint32_t t_super_block_size=1024, uint32_t... t_block_sizes>
+template<bool t_min = true, bool t_use_bitmasks = false, uint32_t t_st_block_size = 0, uint32_t t_super_block_size=1024, uint32_t... t_block_sizes>
 class rmq_succinct_rec_new;
 
 template<bool t_min = false, uint32_t t_st_block_size = 0, uint32_t t_super_block_size=1024, uint32_t... t_block_sizes>
@@ -64,11 +67,12 @@ struct range_maximum_rec_new {
  * In Proceedings of Data Compression Conference, DCC'16.
  *
  */
-template<bool t_min, uint32_t t_st_block_size, uint32_t t_super_block_size, uint32_t... t_block_sizes>
+template<bool t_min, bool t_use_bitmasks, uint32_t t_st_block_size, uint32_t t_super_block_size, uint32_t... t_block_sizes>
 class rmq_succinct_rec_new
 {
-        using recursive_rmq = rmq_succinct_rec_new<t_min, t_st_block_size, t_block_sizes...>;
+        using recursive_rmq = rmq_succinct_rec_new<t_min, t_use_bitmasks, t_st_block_size, t_block_sizes...>;
         using sparse_table = rmq_support_sparse_table<true,false>;
+        using type_bitmask_rmq = RMQ_SDSL_Bitmasks_Compressed<32, 0>;
 
         bool                        m_use_sparse_rmq;       // Indicate, if sparse rmq derminates the recursion
         bit_vector                  m_gct_bp;               // BP-Sequence of the cartesian tree
@@ -82,6 +86,7 @@ class rmq_succinct_rec_new
         rank_select_support_bp<>    m_rank_select;          // Rank and Select-Datastructure
         bit_vector::value_type      m_max_excess_v;         // Depth of the Cartesian Tree build over the original array
         bit_vector::value_type      m_max_excess_reverse_v; // Depth of the Cartesian Tree build over the reverse array
+        std::unique_ptr<type_bitmask_rmq>    m_rmq_bitmasks;
 
         int functionAnswered = 0;
 
@@ -218,7 +223,7 @@ class rmq_succinct_rec_new
             }
             util::bit_compress(m_sample_idx);
             util::bit_compress(m_sample_val);
-            std::println(std::cerr, "Building aux sparse table on {} blocks of size {}", m_sample_val.size(), block_size);
+            // std::println(std::cerr, "Building aux sparse table on {} blocks of size {}", m_sample_val.size(), block_size);
             m_sparse_table = new sparse_table(&m_sample_val);
         }
 
@@ -238,6 +243,24 @@ class rmq_succinct_rec_new
                 return std::make_pair(min_block_excess_idx,min_block_excess);
             } else {
                 return std::make_pair(min_left_excess_idx,min_left_excess);
+            } 
+        }
+
+        inline std::pair<bit_vector::size_type, int_vector<>::value_type> 
+               leftmost_minimum(const bit_vector::size_type    min_left_excess_idx, 
+                                 const bit_vector::size_type    min_block_excess_idx, 
+                                 const bit_vector::size_type    min_right_excess_idx,
+                                 const int_vector<>::value_type min_left_excess, 
+                                 const int_vector<>::value_type min_block_excess, 
+                                 const int_vector<>::value_type min_right_excess) const {
+            // assert(min_left_excess_idx <= min_block_excess_idx); 
+            // assert(min_block_excess_idx <= min_right_excess_idx);
+            if (min_left_excess <= min_right_excess && min_left_excess <= min_block_excess) {
+                return std::make_pair(min_left_excess_idx,min_left_excess);
+            } else if(min_block_excess <= min_right_excess) {
+                return std::make_pair(min_block_excess_idx,min_block_excess);
+            } else {
+                return std::make_pair(min_right_excess_idx,min_right_excess);
             } 
         }
 
@@ -334,6 +357,12 @@ class rmq_succinct_rec_new
             }
         }
 
+    private:
+        template<class t_rac>
+        void build_bitmask_rmq(const t_rac* v) {
+            m_rmq_bitmasks = make_unique<type_bitmask_rmq>(v);
+        }
+
     public:
         typedef typename bit_vector::size_type size_type;
         typedef typename bit_vector::value_type value_type;
@@ -349,7 +378,7 @@ class rmq_succinct_rec_new
         template<class t_rac>
         rmq_succinct_rec_new(const t_rac* v=nullptr) : m_sparse_table(nullptr), m_rmq_recursive(nullptr) {
             if (v != nullptr) {
-                std::println(std::cerr, "Rmq_succint_rec_new size: {}", v->size());
+                // std::println(std::cerr, "Rmq_succint_rec_new size: {}", v->size());
                 size_type bp_size = 2*v->size()+2;
                 m_gct_bp = bit_vector(bp_size,0);
                 if(t_super_block_size > 0 && t_super_block_size <= bp_size) {
@@ -361,10 +390,13 @@ class rmq_succinct_rec_new
                     } else {
                         construct_generalized_cartesian_tree<false,true>(v);
                     }
-                    std::println(std::cerr, "BP size: {}", m_gct_bp.size());
+                    // std::println(std::cerr, "BP size: {}", m_gct_bp.size());
                     m_rank_select = rank_select_support_bp<>(&m_gct_bp);
                     build_rmq_recursive();
                     if(t_st_block_size) build_sparse_table(v);
+                    if(t_use_bitmasks) {
+                        build_bitmask_rmq(v);
+                    }
                 }
                 else {
                     //In case of building the Sparse-RMQ, we need to store the input array
@@ -509,6 +541,69 @@ class rmq_succinct_rec_new
                 }
             }
 
+            if (t_use_bitmasks)
+            {
+                auto resp = m_rmq_bitmasks->operator()(l, r);
+                if ((resp.middle_candidate.value() == 0)
+                    or (resp.left_candidate.has_value() and
+                    resp.right_candidate.has_value())
+                )
+                {
+                    goto skipBitmasks;
+                }
+
+                if (not resp.left_candidate.has_value() and
+                    not resp.right_candidate.has_value())
+                {
+                    return resp.middle_candidate.value();
+                }
+
+                if (not resp.left_candidate.has_value())
+                {
+                    resp.left_candidate = resp.middle_candidate;
+                    resp.middle_candidate = resp.right_candidate;
+                }
+
+                auto left_candidate = resp.left_candidate.value();
+                auto right_candidate = resp.middle_candidate.value();
+
+                auto tmp_l = map_index(left_candidate), tmp_r = map_index(right_candidate);
+
+                // 1. Sort the mapped indices to keep the select hint valid
+                auto min_map = std::min(tmp_l, tmp_r);
+                auto max_map = std::max(tmp_l, tmp_r);
+
+                // 2. Query in strict ascending order so the hint is highly optimized
+                auto first_bp_idx = m_rank_select.select(min_map + 2) - 1;
+                auto second_bp_idx = m_rank_select.select(max_map + 2, first_bp_idx) - 1;
+
+                // 3. Map the retrieved BP indices back to their proper logical candidates
+                auto left_bp_idx  = (tmp_l == min_map) ? first_bp_idx : second_bp_idx;
+                auto right_bp_idx = (tmp_r == min_map) ? first_bp_idx : second_bp_idx;
+
+                auto left_excess = m_rank_select.excess(left_bp_idx);
+                auto right_excess = m_rank_select.excess(right_bp_idx);
+
+
+                // auto left_bp_idx = m_rank_select.select(map_index(resp.left_candidate.value().first)+2)-1;
+                // auto left_excess = m_rank_select.excess(left_bp_idx);
+
+                // auto middle_bp_idx = m_rank_select.select(map_index(resp.middle_candidate.value().first)+2)-1;
+                // auto middle_excess = m_rank_select.excess(middle_bp_idx);
+
+                functionAnswered = 7;
+
+                if (left_excess < right_excess or
+                    (left_excess == right_excess and
+                    left_bp_idx > right_bp_idx))
+                {
+                    return left_candidate;
+                }
+                return right_candidate;
+            }
+
+            skipBitmasks:;
+
             size_type tmp_l = map_index(l), tmp_r = map_index(r);
             if (tmp_l > tmp_r) std::swap(tmp_l,tmp_r);
 
@@ -547,7 +642,7 @@ class rmq_succinct_rec_new
             } 
             //Case: Query can be divided into three queries [l,l'), [l',r'] and (r',r], where [l',r'] is
             //      aligned with the blocks. 
-            else {
+            {
                 //Block aligned query [l',r']
                 size_type min_block_idx = (*m_rmq_recursive)(map_to_min_excess(block_j-1), map_to_min_excess(block_i));
                 //Note: The recursive RMQ is built over the reverse minimum excess array and returns the 

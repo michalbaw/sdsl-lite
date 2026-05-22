@@ -75,7 +75,7 @@ struct RMQ_Fast
 		size_type local_min, local_idx;
 		if (c[l + B - 1] <= c[r])
 		{
-			local_min = c[l + B- 1];
+			local_min = c[l + B - 1];
 			local_idx = c_indexes[l + B - 1];
 		}
 		else
