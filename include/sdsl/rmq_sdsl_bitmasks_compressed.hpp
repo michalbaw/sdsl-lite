@@ -6,6 +6,7 @@
 #include <optional>
 #include <utility>
 #include <print>
+#include <queue>
 
 #include "rmq_support.hpp"
 #include "rmq_sdsl_fast.hpp"
@@ -52,7 +53,7 @@ struct rmq_sdsl_bitmasks_return_type
 // template<bool t_min = true, bool t_use_bitmasks = false, uint32_t t_st_block_size = 0, uint32_t t_super_block_size=1024, uint32_t... t_block_sizes>
 // class rmq_succinct_rec_new;
 
-template<uint32_t t_bitmask_size, uint32_t... t_recurisve_sizes>
+template<uint32_t t_bitmask_size, uint32_t t_opt_percentile, uint32_t... t_recurisve_sizes>
 class RMQ_SDSL_Bitmasks_Compressed
 {
 	using recursive_rmq = RMQ_SDSL_Fast<0, t_recurisve_sizes...>;
@@ -71,6 +72,8 @@ private:
 	int_vector<> block_minumums_indices;
 	int_vector<> right_neighbour_lower_bound;
 	int_vector<> left_neighbour_lower_bound;
+	int_vector<> upper_percentile;
+	int_vector<> upper_percentile_idx;
 
 public:
 	template<class t_rac>
@@ -92,6 +95,8 @@ public:
 		masks_right = int_vector<>(sz(*A)/B + 1, 0);
 		right_neighbour_lower_bound = int_vector<>(sz(*A)/B + 1, 0);
 		left_neighbour_lower_bound = int_vector<>(sz(*A)/B + 1, 0);
+		upper_percentile = int_vector<>(sz(*A)/B + 1, 0);
+		upper_percentile_idx = int_vector<>(sz(*A)/B + 1, 0);
 		int_vector<> input_array = int_vector<>(*A);
 		block_minimums = int_vector<>(sz(*A) / B + 1, 0);
 		block_minumums_indices = int_vector<>(sz(*A) / B + 1, 0);
@@ -100,7 +105,7 @@ public:
 		{
 			if ((i % B) == 0 or i == sz(input_array) - 1 or input_array[i] < block_minimums[i / B])
 			{
-				block_minimums[i / B] = input_array[i];
+				block_minimums[i / B] = static_cast<int32_t>(input_array[i]);
 				block_minumums_indices[i / B] = i;
 			}
 			mi <<= 1;
@@ -162,6 +167,24 @@ public:
 				right_neighbour_lower_bound[i/B] = i;
 			}
 		}
+		using queue_elem = std::pair<int32_t,int32_t>;
+		using p_queue_t = std::priority_queue<queue_elem, std::vector<queue_elem>, std::greater<queue_elem>>;
+		p_queue_t top_elems;
+		for (int i = 0; i < sz(input_array); i++)
+		{
+			top_elems.push({input_array[i], i});
+			if (top_elems.size() > t_opt_percentile)
+			{
+				top_elems.pop();
+			}
+			if ((i%B) == B-1 or i == sz(input_array)-1)
+			{
+				upper_percentile[i/B] = top_elems.top().first;
+				upper_percentile_idx[i/B] = top_elems.top().second;
+				p_queue_t tmp_queue;
+				top_elems.swap(tmp_queue);
+			}
+		}
 		util::bit_compress(block_minimums);
 		util::bit_compress(block_minumums_indices);
 		m_recursive_rmq = std::make_unique<recursive_rmq>(&block_minimums);
@@ -213,9 +236,24 @@ public:
 		}
 
 		size_type recursive_min_idx = m_recursive_rmq->operator()(left_inside_bound, right_inside_bound);
-		// size_type recursive_min = block_minimums[recursive_min_idx];
+		size_type recursive_min = block_minimums[recursive_min_idx];
 		recursive_min_idx = block_minumums_indices[recursive_min_idx];
 		returned_value.middle_candidate = recursive_min_idx;
+
+		if (returned_value.left_candidate.has_value() and
+			upper_percentile_idx[left_block] >= l and
+			upper_percentile[left_block] <= recursive_min)
+		{
+			returned_value.middle_candidate = returned_value.left_candidate;
+			returned_value.left_candidate.reset();
+		}
+		else if (returned_value.right_candidate.has_value() and
+			upper_percentile_idx[right_block] <= r and
+			upper_percentile[right_block] < recursive_min)
+		{
+			returned_value.middle_candidate = returned_value.right_candidate;
+			returned_value.right_candidate.reset();
+		}
 
 		// size_type true_idx, true_val = numeric_limits<unsigned long>::max();
 		// for (int i = l; i <= r; i++)
@@ -246,10 +284,13 @@ public:
 		if(t_bitmask_size) {
 			written_bytes += masks_left.serialize(out, child, "masks_left");
 			written_bytes += masks_right.serialize(out, child, "masks_right");
-			// written_bytes += input_array.serialize(out, child, "a");
 			written_bytes += block_minimums.serialize(out, child, "block_minimums");
-			// written_bytes += block_minumums_indices.serialize(out, child, "block_minimums_indices");
+			written_bytes += block_minumums_indices.serialize(out, child, "block_minimums_indices");
 			written_bytes += m_recursive_rmq->serialize(out, child, "rmq_recursive");
+			written_bytes += right_neighbour_lower_bound.serialize(out, child, "right_neighbour_lower_bound");
+			written_bytes += left_neighbour_lower_bound.serialize(out, child, "left_neighbour_lower_bound");
+			written_bytes += upper_percentile.serialize(out, child, "upper_percentile");
+			written_bytes += upper_percentile_idx.serialize(out, child, "upper_percentile_idx");
 		} else {
 			written_bytes += block_minimums.serialize(out, child, "block_minimums");
 		}

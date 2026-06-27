@@ -70,9 +70,9 @@ struct range_maximum_rec_new {
 template<bool t_min, bool t_use_bitmasks, uint32_t t_st_block_size, uint32_t t_super_block_size, uint32_t... t_block_sizes>
 class rmq_succinct_rec_new
 {
-        using recursive_rmq = rmq_succinct_rec_new<t_min, t_use_bitmasks, t_st_block_size, t_block_sizes...>;
+        using recursive_rmq = rmq_succinct_rec_new<t_min, false, t_st_block_size, t_block_sizes...>;
         using sparse_table = rmq_support_sparse_table<true,false>;
-        using type_bitmask_rmq = RMQ_SDSL_Bitmasks_Compressed<32, 0>;
+        using type_bitmask_rmq = RMQ_SDSL_Bitmasks_Compressed<32, 24, 0>;
 
         bool                        m_use_sparse_rmq;       // Indicate, if sparse rmq derminates the recursion
         bit_vector                  m_gct_bp;               // BP-Sequence of the cartesian tree
@@ -569,27 +569,17 @@ class rmq_succinct_rec_new
 
                 auto tmp_l = map_index(left_candidate), tmp_r = map_index(right_candidate);
 
-                // 1. Sort the mapped indices to keep the select hint valid
                 auto min_map = std::min(tmp_l, tmp_r);
                 auto max_map = std::max(tmp_l, tmp_r);
 
-                // 2. Query in strict ascending order so the hint is highly optimized
                 auto first_bp_idx = m_rank_select.select(min_map + 2) - 1;
                 auto second_bp_idx = m_rank_select.select(max_map + 2, first_bp_idx) - 1;
 
-                // 3. Map the retrieved BP indices back to their proper logical candidates
                 auto left_bp_idx  = (tmp_l == min_map) ? first_bp_idx : second_bp_idx;
                 auto right_bp_idx = (tmp_r == min_map) ? first_bp_idx : second_bp_idx;
 
                 auto left_excess = m_rank_select.excess(left_bp_idx);
                 auto right_excess = m_rank_select.excess(right_bp_idx);
-
-
-                // auto left_bp_idx = m_rank_select.select(map_index(resp.left_candidate.value().first)+2)-1;
-                // auto left_excess = m_rank_select.excess(left_bp_idx);
-
-                // auto middle_bp_idx = m_rank_select.select(map_index(resp.middle_candidate.value().first)+2)-1;
-                // auto middle_excess = m_rank_select.excess(middle_bp_idx);
 
                 functionAnswered = 7;
 
@@ -692,6 +682,10 @@ class rmq_succinct_rec_new
             size_type written_bytes = 0;
             written_bytes += write_member(m_use_sparse_rmq, out, child, "m_use_sparse_rmq");
             if(m_rmq_recursive != nullptr) {
+                if (t_use_bitmasks)
+                {
+                    written_bytes += m_rmq_bitmasks->serialize(out, child, "m_rmq_bitmasks");
+                }
                 written_bytes += m_gct_bp.serialize(out, child, "gct_bp");
                 written_bytes += m_rank_select.serialize(out, child, "rank_select_bp");
                 written_bytes += m_min_excess.serialize(out, child, "min_excess");

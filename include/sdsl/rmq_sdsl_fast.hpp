@@ -175,7 +175,6 @@ public:
 		size_type written_bytes = 0;
 		if(t_bitmask_size) {
 			written_bytes += m.serialize(out, child, "m");
-			written_bytes += a.serialize(out, child, "a");
 			written_bytes += c.serialize(out, child, "c");
 			written_bytes += c_indexes.serialize(out, child, "c_indexes");
 			written_bytes += block_minimums.serialize(out, child, "block_minimums");
